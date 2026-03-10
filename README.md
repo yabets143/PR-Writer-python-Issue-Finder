@@ -10,6 +10,7 @@ It now supports:
 - Continuous scanning until you stop the process
 - Scanning a specific GitHub repo on demand
 - A browser UI for matches, targeted scans, and live scan logs
+- English-only repository and issue filtering
 
 ## Files
 
@@ -95,6 +96,12 @@ Start the local web app:
 uvicorn webapp:app --reload
 ```
 
+Compatibility entrypoint also supported:
+
+```powershell
+uvicorn app.main:app --reload
+```
+
 Then open `http://127.0.0.1:8000` in your browser.
 
 The UI includes:
@@ -102,6 +109,14 @@ The UI includes:
 - A repo input that triggers a targeted scan
 - A live scanning log panel streamed from the backend
 - Issue, PR, and checkout SHA details for each match
+
+## English-only Filtering
+
+By default, the scanner now accepts only:
+- Repositories whose metadata looks English
+- Issues whose title and body look English
+
+This filter is applied to both the broad discovery scan and targeted `--repo` scans.
 
 ## Resume Behavior
 
@@ -134,6 +149,7 @@ PULLS_PER_PAGE=100
 REQUEST_TIMEOUT=30
 RUN_UNTIL_STOP=0
 FULL_SWEEP_PAUSE_SECONDS=900
+ENGLISH_ONLY=1
 ```
 
 

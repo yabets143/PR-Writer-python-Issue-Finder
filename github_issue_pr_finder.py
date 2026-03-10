@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import requests
+from langdetect import DetectorFactory, LangDetectException, detect
+
+DetectorFactory.seed = 0
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOTENV_FILE = os.path.join(BASE_DIR, ".env")
@@ -66,6 +69,7 @@ MAX_PULL_PAGES_PER_REPO = env_int("MAX_PULL_PAGES_PER_REPO", 5)
 REQUEST_TIMEOUT = env_int("REQUEST_TIMEOUT", 30)
 FULL_SWEEP_PAUSE_SECONDS = env_int("FULL_SWEEP_PAUSE_SECONDS", 900)
 RUN_UNTIL_STOP = env_bool("RUN_UNTIL_STOP", False)
+ENGLISH_ONLY = env_bool("ENGLISH_ONLY", True)
 MAX_REQUEST_RETRIES = env_int("MAX_REQUEST_RETRIES", 5)
 RETRY_BACKOFF_SECONDS = env_int("RETRY_BACKOFF_SECONDS", 2)
 OUTPUT_FILE = os.path.join(BASE_DIR, "github_issue_pr_matches.json")
@@ -85,9 +89,20 @@ TRIVIAL_KEYWORDS = [
     "comment",
 ]
 
+LANGUAGE_MIN_TEXT_LENGTH = 24
+LANGUAGE_WORD_PATTERN = re.compile(r"[A-Za-z]{2,}")
+CODE_FENCE_PATTERN = re.compile(r"```.*?```", re.DOTALL)
+INLINE_CODE_PATTERN = re.compile(r"`[^`]+`")
+URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
+MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\([^\)]+\)")
+
 
 class RecoverableGitHubError(requests.RequestException):
     """Raised when a transient GitHub API failure persists after retries."""
+
+
+class ScanStopped(Exception):
+    """Raised when a caller requests that a scan stop gracefully."""
 
 
 def get_rate_limit_sleep_seconds(response):
@@ -103,6 +118,24 @@ def get_rate_limit_sleep_seconds(response):
 
 def build_retry_sleep_seconds(attempt_number):
     return max(RETRY_BACKOFF_SECONDS * attempt_number, 1)
+
+
+def stop_requested(stop_callback=None):
+    return bool(stop_callback and stop_callback())
+
+
+def raise_if_stop_requested(stop_callback=None):
+    if stop_requested(stop_callback):
+        raise ScanStopped("Scan stopped by request")
+
+
+def sleep_with_stop(total_seconds, stop_callback=None, step_seconds=1.0):
+    remaining = max(float(total_seconds), 0.0)
+    while remaining > 0:
+        raise_if_stop_requested(stop_callback)
+        sleep_seconds = min(step_seconds, remaining)
+        time.sleep(sleep_seconds)
+        remaining -= sleep_seconds
 
 
 def github_get(url, params=None, extra_headers=None):
@@ -191,6 +224,11 @@ def search_python_repos(page, star_ceiling=None):
     return data.get("items", [])
 
 
+def get_repo_details(repo):
+    url = f"https://api.github.com/repos/{repo}"
+    return github_get(url)
+
+
 def normalize_repo_name(repo_value):
     candidate = (repo_value or "").strip()
     if not candidate:
@@ -238,6 +276,60 @@ def get_closed_pulls(repo, page):
     return github_get(url, params=params)
 
 
+def strip_markup_for_language(text):
+    cleaned = text or ""
+    cleaned = CODE_FENCE_PATTERN.sub(" ", cleaned)
+    cleaned = INLINE_CODE_PATTERN.sub(" ", cleaned)
+    cleaned = MARKDOWN_LINK_PATTERN.sub(r"\1", cleaned)
+    cleaned = URL_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"[#>*_~\-]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def detect_is_english(text):
+    cleaned = strip_markup_for_language(text)
+    words = LANGUAGE_WORD_PATTERN.findall(cleaned)
+    candidate = " ".join(words)
+
+    if len(candidate) < LANGUAGE_MIN_TEXT_LENGTH:
+        return None
+
+    try:
+        return detect(candidate) == "en"
+    except LangDetectException:
+        return None
+
+
+def repo_looks_english(repo_name, repo_data):
+    if not ENGLISH_ONLY:
+        return True
+
+    description = (repo_data or {}).get("description") or ""
+    homepage = (repo_data or {}).get("homepage") or ""
+    topics = " ".join((repo_data or {}).get("topics") or [])
+    repo_text = " ".join(part for part in [repo_name.replace("/", " "), description, homepage, topics] if part).strip()
+    detected = detect_is_english(repo_text)
+
+    if detected is True:
+        return True
+
+    if detected is False:
+        return False
+
+    ascii_only_name = all(ord(char) < 128 for char in repo_name)
+    return ascii_only_name and not description
+
+
+def issue_looks_english(issue):
+    if not ENGLISH_ONLY:
+        return True
+
+    text = " ".join(filter(None, [issue.get("title", ""), issue.get("body") or ""])).strip()
+    detected = detect_is_english(text)
+    return detected is True
+
+
 def is_complex_issue(issue):
     text = (issue.get("title", "") + " " + (issue.get("body") or "")).lower()
 
@@ -246,6 +338,9 @@ def is_complex_issue(issue):
             return False
 
     if len(text) < 100:
+        return False
+
+    if not issue_looks_english(issue):
         return False
 
     return True
@@ -479,11 +574,26 @@ def print_match_summary(match, prefix="  "):
     print(f"{prefix}Checkout SHA: {match.get('checkout_sha')}")
 
 
-def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_matches=None):
+def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_matches=None, stop_callback=None, repo_data=None):
+    raise_if_stop_requested(stop_callback)
     print(f"\nChecking repo: {repo_name}")
     repo_failed = False
 
+    try:
+        repo_metadata = repo_data or get_repo_details(repo_name)
+    except RecoverableGitHubError as exc:
+        print(f"  Skipping repo metadata check for {repo_name} after repeated transient errors: {exc}")
+        return True, False
+    except requests.HTTPError as exc:
+        print(f"  Skipping repo metadata check for {repo_name} due to API error: {exc}")
+        return True, False
+
+    if not repo_looks_english(repo_name, repo_metadata):
+        print(f"  Skipping {repo_name} because the repository metadata does not look English.")
+        return False, False
+
     for pull_page in range(1, MAX_PULL_PAGES_PER_REPO + 1):
+        raise_if_stop_requested(stop_callback)
         try:
             pulls = get_closed_pulls(repo_name, pull_page)
         except RecoverableGitHubError as exc:
@@ -504,6 +614,7 @@ def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_match
         print(f"  Pull page {pull_page}: {len(pulls)} candidates")
 
         for pull in pulls:
+            raise_if_stop_requested(stop_callback)
             if not pull.get("merged_at"):
                 continue
 
@@ -527,6 +638,7 @@ def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_match
                 continue
 
             for issue_number in issue_numbers:
+                raise_if_stop_requested(stop_callback)
                 try:
                     issue = get_issue(repo_name, issue_number)
                 except RecoverableGitHubError as exc:
@@ -560,7 +672,7 @@ def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_match
                 if target_matches is not None and len(matches) >= target_matches:
                     return repo_failed, True
 
-        time.sleep(0.2)
+        sleep_with_stop(0.2, stop_callback=stop_callback, step_seconds=0.2)
 
     return repo_failed, False
 
@@ -570,14 +682,23 @@ def get_repo_matches(matches, repo_name):
     return [match for match in matches if (match.get("repo") or "").lower() == repo_key]
 
 
-def collect_matches_for_repos(repo_names):
+def collect_matches_for_repos(repo_names, stop_callback=None):
     matches = load_matches()
     matches = enrich_matches_with_checkout_state(matches)
     seen_issue_urls = {match.get("issue_url") for match in matches if match.get("issue_url")}
     seen_match_keys = {build_match_key(match) for match in matches}
 
     for repo_name in repo_names:
-        repo_failed, _ = scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_matches=None)
+        raise_if_stop_requested(stop_callback)
+        repo_failed, _ = scan_repo(
+            repo_name,
+            matches,
+            seen_issue_urls,
+            seen_match_keys,
+            target_matches=None,
+            stop_callback=stop_callback,
+            repo_data=None,
+        )
         repo_matches = get_repo_matches(matches, repo_name)
 
         print(f"\nQualified issues for {repo_name}: {len(repo_matches)}")
@@ -603,7 +724,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def collect_matches(target_matches=None, run_until_stop=False):
+def collect_matches(target_matches=None, run_until_stop=False, stop_callback=None):
     matches = load_matches()
     matches = enrich_matches_with_checkout_state(matches)
     state = load_scan_state()
@@ -620,6 +741,7 @@ def collect_matches(target_matches=None, run_until_stop=False):
         return matches[:target_matches]
 
     while True:
+        raise_if_stop_requested(stop_callback)
         scanned_repos = set(state.get("scanned_repos", []))
         star_ceiling = state.get("current_star_ceiling")
         lowest_star_seen = None
@@ -631,11 +753,12 @@ def collect_matches(target_matches=None, run_until_stop=False):
             print(f"\nScanning Python repositories with stars <= {star_ceiling}")
 
         for repo_page in range(1, MAX_REPO_PAGES + 1):
+            raise_if_stop_requested(stop_callback)
             try:
                 repos = search_python_repos(repo_page, star_ceiling=star_ceiling)
             except RecoverableGitHubError as exc:
                 print(f"\nSkipping repository search page {repo_page} after repeated transient GitHub failures: {exc}")
-                time.sleep(RETRY_BACKOFF_SECONDS)
+                sleep_with_stop(RETRY_BACKOFF_SECONDS, stop_callback=stop_callback)
                 continue
 
             if not repos:
@@ -661,6 +784,8 @@ def collect_matches(target_matches=None, run_until_stop=False):
                     seen_issue_urls,
                     seen_match_keys,
                     target_matches=target_matches,
+                    stop_callback=stop_callback,
+                    repo_data=repo,
                 )
 
                 if reached_target:
@@ -672,7 +797,7 @@ def collect_matches(target_matches=None, run_until_stop=False):
                     mark_repo_scanned(state, repo_name)
                     scanned_repos.add(repo_name)
 
-                time.sleep(0.5)
+                sleep_with_stop(0.5, stop_callback=stop_callback, step_seconds=0.5)
 
         if not run_until_stop:
             return matches
@@ -688,7 +813,7 @@ def collect_matches(target_matches=None, run_until_stop=False):
             f"\nCompleted full sweep #{state['completed_sweeps']}. "
             f"Sleeping {FULL_SWEEP_PAUSE_SECONDS} seconds before restarting from the highest-star repos."
         )
-        time.sleep(FULL_SWEEP_PAUSE_SECONDS)
+        sleep_with_stop(FULL_SWEEP_PAUSE_SECONDS, stop_callback=stop_callback)
 
 
 def main():

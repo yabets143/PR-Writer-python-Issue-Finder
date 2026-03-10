@@ -1,6 +1,7 @@
 const state = {
   allMatches: [],
   displayedMatches: [],
+  currentScan: null,
   currentScanId: null,
   currentRepo: null,
   eventSource: null,
@@ -15,6 +16,8 @@ const elements = {
   scanId: document.getElementById('scanId'),
   repoInput: document.getElementById('repoInput'),
   scanButton: document.getElementById('scanButton'),
+  startLiveScanButton: document.getElementById('startLiveScanButton'),
+  stopLiveScanButton: document.getElementById('stopLiveScanButton'),
   refreshMatchesButton: document.getElementById('refreshMatchesButton'),
   clearLogButton: document.getElementById('clearLogButton'),
   filterInput: document.getElementById('filterInput'),
@@ -61,12 +64,54 @@ function clearLog() {
   elements.logOutput.innerHTML = '';
 }
 
+async function extractApiError(response, fallbackMessage) {
+  let payload = null;
+
+  try {
+    payload = await response.json();
+  } catch {
+    return `${fallbackMessage} (HTTP ${response.status})`;
+  }
+
+  const detail = payload?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+
+  if (detail && typeof detail === 'object' && typeof detail.message === 'string' && detail.message.trim()) {
+    return detail.message;
+  }
+
+  if (typeof payload?.message === 'string' && payload.message.trim()) {
+    return payload.message;
+  }
+
+  return `${fallbackMessage} (HTTP ${response.status})`;
+}
+
+function isScanActive(scan) {
+  return Boolean(scan && ['queued', 'running', 'stopping'].includes(scan.status));
+}
+
+function updateScanControls(scan) {
+  const active = isScanActive(scan);
+  const isContinuous = active && scan.mode === 'continuous';
+  const canStop = Boolean(scan && scan.can_stop);
+
+  elements.scanButton.disabled = active;
+  elements.repoInput.disabled = active;
+  elements.startLiveScanButton.disabled = active;
+  elements.stopLiveScanButton.disabled = !(isContinuous && canStop);
+}
+
 function setScanMeta(scan) {
+  state.currentScan = scan;
   if (!scan) {
     elements.scanStatus.textContent = 'Idle';
     elements.activeRepo.textContent = 'None';
     elements.newMatchesCount.textContent = '0';
     elements.scanId.textContent = '-';
+    updateScanControls(null);
     return;
   }
 
@@ -74,6 +119,7 @@ function setScanMeta(scan) {
   elements.activeRepo.textContent = scan.repo || 'None';
   elements.newMatchesCount.textContent = String(scan.new_match_count || 0);
   elements.scanId.textContent = scan.scan_id || '-';
+  updateScanControls(scan);
 }
 
 function updateStats() {
@@ -249,20 +295,16 @@ function connectToScanStream(scanId) {
 
   eventSource.addEventListener('status', async (event) => {
     const payload = JSON.parse(event.data);
-    elements.scanStatus.textContent = payload.status || 'Idle';
+    setScanMeta({ ...(state.currentScan || {}), ...payload, scan_id: state.currentScanId });
     if (payload.repo) {
-      elements.activeRepo.textContent = payload.repo;
       state.currentRepo = payload.repo;
-    }
-    if (payload.new_match_count !== undefined) {
-      elements.newMatchesCount.textContent = String(payload.new_match_count);
     }
   });
 
   eventSource.addEventListener('summary', async (event) => {
     const payload = JSON.parse(event.data);
     setScanMeta(payload);
-    if (payload.repo) {
+    if (payload.mode === 'repo' && payload.repo) {
       elements.filterInput.value = payload.repo;
       await fetchMatches();
     } else {
@@ -271,13 +313,12 @@ function connectToScanStream(scanId) {
 
     appendLogLine(`Scan ${payload.status} for ${payload.repo}.`, payload.status === 'error' ? 'error' : 'status');
     closeEventSource();
-    elements.scanButton.disabled = false;
   });
 
   eventSource.onerror = () => {
     appendLogLine('Live scan stream disconnected.', 'error');
     closeEventSource();
-    elements.scanButton.disabled = false;
+    updateScanControls(state.currentScan);
   };
 }
 
@@ -290,19 +331,50 @@ async function startRepoScan(repo) {
     body: JSON.stringify({ repo }),
   });
 
-  const payload = await response.json();
   if (!response.ok) {
-    const detail = payload.detail || {};
-    const message = detail.message || 'Scan could not be started.';
-    throw new Error(message);
+    throw new Error(await extractApiError(response, 'Scan could not be started.'));
   }
+
+  const payload = await response.json();
 
   const scan = payload.scan;
   setScanMeta(scan);
-  elements.scanButton.disabled = true;
   clearLog();
   appendLogLine(`Preparing scan for ${scan.repo}`, 'status');
   connectToScanStream(scan.scan_id);
+}
+
+async function startLiveScan() {
+  const response = await fetch('/api/scan-live/start', {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, 'Live scan could not be started.'));
+  }
+
+  const payload = await response.json();
+
+  const scan = payload.scan;
+  setScanMeta(scan);
+  clearLog();
+  appendLogLine('Preparing nonstop discovery scan.', 'status');
+  connectToScanStream(scan.scan_id);
+}
+
+async function stopLiveScan() {
+  const response = await fetch('/api/scan-live/stop', {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, 'Live scan could not be stopped.'));
+  }
+
+  const payload = await response.json();
+
+  setScanMeta(payload.scan);
+  appendLogLine('Stop requested for nonstop live scan.', 'status');
 }
 
 async function initializeDashboard() {
@@ -310,9 +382,8 @@ async function initializeDashboard() {
     await fetchMatches();
     const scan = await fetchScanStatus();
     setScanMeta(scan);
-    if (scan && (scan.status === 'queued' || scan.status === 'running')) {
+    if (scan && isScanActive(scan)) {
       appendLogLine(`Rejoined active scan for ${scan.repo}`, 'status');
-      elements.scanButton.disabled = true;
       connectToScanStream(scan.scan_id);
     }
   } catch (error) {
@@ -332,6 +403,23 @@ elements.scanForm.addEventListener('submit', async (event) => {
   } catch (error) {
     appendLogLine(error.message, 'error');
     elements.scanButton.disabled = false;
+  }
+});
+
+elements.startLiveScanButton.addEventListener('click', async () => {
+  try {
+    await startLiveScan();
+  } catch (error) {
+    appendLogLine(error.message, 'error');
+    updateScanControls(state.currentScan);
+  }
+});
+
+elements.stopLiveScanButton.addEventListener('click', async () => {
+  try {
+    await stopLiveScan();
+  } catch (error) {
+    appendLogLine(error.message, 'error');
   }
 });
 

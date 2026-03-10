@@ -57,6 +57,17 @@
           <p id="scanHint" class="subtle-note">The scan streams PR pages live below and saves qualified matches to disk immediately.</p>
         </form>
 
+        <div class="live-scan-controls">
+          <div>
+            <span class="meta-label">Nonstop Discovery</span>
+            <p class="subtle-note">Continuously scans popular Python repos until you stop it from the dashboard.</p>
+          </div>
+          <div class="live-scan-actions">
+            <button id="startLiveScanButton" class="primary-button" type="button">Start Live Scan</button>
+            <button id="stopLiveScanButton" class="ghost-button" type="button" disabled>Stop Live Scan</button>
+          </div>
+        </div>
+
         <div class="active-scan-meta">
           <div>
             <span class="meta-label">Active Repo</span>

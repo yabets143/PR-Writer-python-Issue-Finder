@@ -240,6 +240,31 @@ a {
   line-height: 1.55;
 }
 
+.live-scan-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.48);
+  border: 1px solid rgba(24, 36, 46, 0.08);
+}
+
+.live-scan-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
 .active-scan-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -513,6 +538,12 @@ a {
   .scan-input-row,
   .active-scan-meta {
     grid-template-columns: 1fr;
+  }
+
+  .live-scan-controls,
+  .live-scan-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .panel-heading,
