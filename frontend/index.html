@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PR Match Radar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <div class="background-wash"></div>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Issue-to-PR Intelligence</p>
+        <h1>PR Finder For Revelo PR-writer</h1>
+        <p class="hero-copy">
+          Browse every saved issue and pull-request match, inspect the pre-fix checkout SHA, and run a fresh repo scan with a live operator log.
+
+          Scan python issues with 
+        </p>
+      </div>
+      <div class="hero-stats">
+        <article>
+          <span>Total Matches</span>
+          <strong id="totalMatches">0</strong>
+        </article>
+        <article>
+          <span>Displayed</span>
+          <strong id="displayedMatches">0</strong>
+        </article>
+        <article>
+          <span>Scan Status</span>
+          <strong id="scanStatus">Idle</strong>
+        </article>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="control-panel card">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Targeted Scan</p>
+            <h2>Probe A Repo</h2>
+          </div>
+          <button id="refreshMatchesButton" class="ghost-button" type="button">Refresh Matches</button>
+        </div>
+
+        <form id="scanForm" class="scan-form">
+          <label for="repoInput">GitHub repo or URL</label>
+          <div class="scan-input-row">
+            <input id="repoInput" name="repo" type="text" placeholder="pytorch/pytorch or https://github.com/pallets/flask" required>
+            <button id="scanButton" class="primary-button" type="submit">Scan Repo</button>
+          </div>
+          <p id="scanHint" class="subtle-note">The scan streams PR pages live below and saves qualified matches to disk immediately.</p>
+        </form>
+
+        <div class="active-scan-meta">
+          <div>
+            <span class="meta-label">Active Repo</span>
+            <strong id="activeRepo">None</strong>
+          </div>
+          <div>
+            <span class="meta-label">New Matches</span>
+            <strong id="newMatchesCount">0</strong>
+          </div>
+          <div>
+            <span class="meta-label">Current Scan ID</span>
+            <strong id="scanId">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="log-panel card">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Live Feed</p>
+            <h2>Scanning Log</h2>
+          </div>
+          <button id="clearLogButton" class="ghost-button" type="button">Clear Log</button>
+        </div>
+        <div id="logOutput" class="log-output" aria-live="polite"></div>
+      </section>
+
+      <section class="matches-panel card">
+        <div class="panel-heading matches-heading">
+          <div>
+            <p class="eyebrow">Saved Results</p>
+            <h2>Qualified Issue Matches</h2>
+          </div>
+          <div class="filter-wrap">
+            <label for="filterInput">Filter</label>
+            <input id="filterInput" type="search" placeholder="Search repo, issue title, SHA">
+          </div>
+        </div>
+        <div id="matchesGrid" class="matches-grid"></div>
+        <div id="emptyState" class="empty-state hidden">
+          <h3>No matches yet</h3>
+          <p>Run a targeted repo scan or wait for the collector to discover more linked issues.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="matchCardTemplate">
+    <article class="match-card">
+      <div class="match-main">
+        <div class="match-topline">
+          <span class="repo-pill"></span>
+          <span class="files-pill"></span>
+        </div>
+        <h3 class="issue-title"></h3>
+        <p class="issue-meta"></p>
+        <div class="bar-links">
+          <a class="action-link issue-link" target="_blank" rel="noreferrer">Issue</a>
+          <a class="action-link pr-link" target="_blank" rel="noreferrer">PR</a>
+        </div>
+      </div>
+      <button class="details-toggle" type="button" aria-expanded="false">Show details</button>
+      <div class="match-expandable hidden">
+        <dl class="match-facts">
+          <div>
+            <dt>SHA</dt>
+            <dd class="checkout-sha"></dd>
+          </div>
+          <div>
+            <dt>Base</dt>
+            <dd class="base-ref"></dd>
+          </div>
+          <div>
+            <dt>Merged</dt>
+            <dd class="merged-at"></dd>
+          </div>
+          <div>
+            <dt>Comments</dt>
+            <dd class="issue-comments"></dd>
+          </div>
+        </dl>
+        <div class="card-actions">
+          <button class="copy-button" type="button">Copy SHA</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
