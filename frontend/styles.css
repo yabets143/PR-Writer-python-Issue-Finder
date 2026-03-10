@@ -293,6 +293,38 @@ a {
   width: min(280px, 100%);
 }
 
+.results-tools {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.sort-wrap {
+  width: min(220px, 100%);
+}
+
+.sort-wrap label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+
+.sort-wrap select {
+  width: 100%;
+  padding: 15px 17px;
+  border: 1px solid rgba(24, 36, 46, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+}
+
+.sort-wrap select:focus {
+  outline: 2px solid rgba(0, 106, 106, 0.25);
+  border-color: rgba(0, 106, 106, 0.55);
+}
+
 .matches-grid {
   display: flex;
   flex-direction: column;
@@ -513,6 +545,11 @@ a {
   }
 
   .filter-wrap {
+    width: 100%;
+  }
+
+  .sort-wrap,
+  .results-tools {
     width: 100%;
   }
 }

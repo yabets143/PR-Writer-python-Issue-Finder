@@ -90,9 +90,21 @@
             <p class="eyebrow">Saved Results</p>
             <h2>Qualified Issue Matches</h2>
           </div>
-          <div class="filter-wrap">
-            <label for="filterInput">Filter</label>
-            <input id="filterInput" type="search" placeholder="Search repo, issue title, SHA">
+          <div class="results-tools">
+            <div class="sort-wrap">
+              <label for="sortSelect">Sort</label>
+              <select id="sortSelect">
+                <option value="recent">Most Recent</option>
+                <option value="repo-asc">Repo A-Z</option>
+                <option value="repo-desc">Repo Z-A</option>
+                <option value="files-desc">Files Changed High-Low</option>
+                <option value="files-asc">Files Changed Low-High</option>
+              </select>
+            </div>
+            <div class="filter-wrap">
+              <label for="filterInput">Filter</label>
+              <input id="filterInput" type="search" placeholder="Search repo, issue title, SHA">
+            </div>
           </div>
         </div>
         <div id="matchesGrid" class="matches-grid"></div>

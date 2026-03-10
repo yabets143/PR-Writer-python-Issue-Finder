@@ -18,6 +18,7 @@ const elements = {
   refreshMatchesButton: document.getElementById('refreshMatchesButton'),
   clearLogButton: document.getElementById('clearLogButton'),
   filterInput: document.getElementById('filterInput'),
+  sortSelect: document.getElementById('sortSelect'),
   matchesGrid: document.getElementById('matchesGrid'),
   emptyState: document.getElementById('emptyState'),
   logOutput: document.getElementById('logOutput'),
@@ -99,9 +100,46 @@ function toggleMatchDetails(card, toggleButton, expandable) {
   toggleButton.textContent = isExpanded ? 'Hide details' : 'Show details';
 }
 
+function getMatchTimestamp(match) {
+  const candidate = match.pr_merged_at || match.issue_closed_at;
+  if (!candidate) {
+    return 0;
+  }
+
+  const parsed = Date.parse(candidate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function sortMatches(matches) {
+  const sortMode = elements.sortSelect?.value || 'recent';
+  const sorted = [...matches];
+
+  sorted.sort((left, right) => {
+    if (sortMode === 'repo-asc') {
+      return (left.repo || '').localeCompare(right.repo || '');
+    }
+
+    if (sortMode === 'repo-desc') {
+      return (right.repo || '').localeCompare(left.repo || '');
+    }
+
+    if (sortMode === 'files-asc') {
+      return (left.files_changed || 0) - (right.files_changed || 0);
+    }
+
+    if (sortMode === 'files-desc') {
+      return (right.files_changed || 0) - (left.files_changed || 0);
+    }
+
+    return getMatchTimestamp(right) - getMatchTimestamp(left);
+  });
+
+  return sorted;
+}
+
 function renderMatches() {
   const query = elements.filterInput.value.trim().toLowerCase();
-  state.displayedMatches = state.allMatches.filter((match) => {
+  const filteredMatches = state.allMatches.filter((match) => {
     if (!query) {
       return true;
     }
@@ -120,6 +158,8 @@ function renderMatches() {
 
     return haystack.includes(query);
   });
+
+  state.displayedMatches = sortMatches(filteredMatches);
 
   updateStats();
   elements.matchesGrid.innerHTML = '';
@@ -310,5 +350,6 @@ elements.clearLogButton.addEventListener('click', () => {
 });
 
 elements.filterInput.addEventListener('input', renderMatches);
+elements.sortSelect.addEventListener('change', renderMatches);
 
 initializeDashboard();
