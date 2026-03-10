@@ -135,6 +135,31 @@ body.modal-open {
   font-size: 2rem;
 }
 
+.rate-limit-card[data-status="healthy"] {
+  border-color: rgba(0, 106, 106, 0.22);
+}
+
+.rate-limit-card[data-status="warning"],
+.rate-limit-card[data-status="low"] {
+  border-color: rgba(186, 74, 31, 0.28);
+}
+
+.rate-limit-card[data-status="exhausted"] {
+  border-color: rgba(138, 47, 18, 0.4);
+  background: rgba(255, 241, 234, 0.92);
+}
+
+.rate-limit-status,
+.rate-limit-reset {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-soft);
+}
+
+.rate-limit-reset {
+  font-size: 0.82rem;
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;

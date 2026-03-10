@@ -363,6 +363,20 @@ def update_settings(request: SettingsUpdateRequest):
     })
 
 
+@app.get("/api/github-rate-limit")
+def get_github_rate_limit(refresh: bool = False):
+    try:
+        payload = finder.fetch_rate_limit_status(force_refresh=refresh)
+    except Exception as exc:
+        payload = finder.get_rate_limit_payload()
+        return JSONResponse({
+            "rate_limit": payload,
+            "error": str(exc),
+        }, status_code=502)
+
+    return JSONResponse({"rate_limit": payload})
+
+
 @app.get("/api/scan-status")
 def get_scan_status():
     session = manager.get_active_session() or manager.get_latest_session()

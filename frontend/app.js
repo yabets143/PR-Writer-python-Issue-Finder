@@ -8,7 +8,10 @@ const state = {
   settings: {},
   settingsSchema: {},
   settingsLoaded: false,
+  rateLimit: null,
 };
+
+const RATE_LIMIT_POLL_INTERVAL_MS = 15000;
 
 const SETTINGS_FIELD_ORDER = [
   'GITHUB_TOKEN',
@@ -28,11 +31,16 @@ const elements = {
   totalMatches: document.getElementById('totalMatches'),
   displayedMatches: document.getElementById('displayedMatches'),
   scanStatus: document.getElementById('scanStatus'),
+  rateLimitCard: document.getElementById('rateLimitCard'),
+  rateLimitRemaining: document.getElementById('rateLimitRemaining'),
+  rateLimitStatus: document.getElementById('rateLimitStatus'),
+  rateLimitReset: document.getElementById('rateLimitReset'),
   activeRepo: document.getElementById('activeRepo'),
   newMatchesCount: document.getElementById('newMatchesCount'),
   scanId: document.getElementById('scanId'),
   repoInput: document.getElementById('repoInput'),
   scanButton: document.getElementById('scanButton'),
+  scanHint: document.getElementById('scanHint'),
   openSettingsButton: document.getElementById('openSettingsButton'),
   startLiveScanButton: document.getElementById('startLiveScanButton'),
   stopLiveScanButton: document.getElementById('stopLiveScanButton'),
@@ -93,6 +101,85 @@ function formatSettingLabel(name) {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function formatDuration(seconds) {
+  if (seconds == null) {
+    return '--';
+  }
+
+  const totalSeconds = Math.max(Number.parseInt(seconds, 10) || 0, 0);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+
+  return `${remainingSeconds}s`;
+}
+
+function renderRateLimit() {
+  const rateLimit = state.rateLimit;
+  if (!rateLimit) {
+    elements.rateLimitCard.dataset.status = 'unknown';
+    elements.rateLimitRemaining.textContent = '-- / --';
+    elements.rateLimitStatus.textContent = 'Checking quota...';
+    elements.rateLimitReset.textContent = 'Reset: --';
+    return;
+  }
+
+  const remaining = rateLimit.remaining ?? '--';
+  const limit = rateLimit.limit ?? '--';
+  const resetText = formatDuration(rateLimit.reset_in_seconds);
+  const statusText = {
+    healthy: 'Healthy',
+    warning: 'Getting low',
+    low: 'Low quota',
+    exhausted: 'Exhausted until reset',
+    refreshing: 'Refreshing',
+    unknown: 'Unknown',
+  }[rateLimit.status] || 'Unknown';
+
+  elements.rateLimitCard.dataset.status = rateLimit.status || 'unknown';
+  elements.rateLimitRemaining.textContent = `${remaining} / ${limit}`;
+  if (rateLimit.usage_percent != null) {
+    elements.rateLimitStatus.textContent = `${statusText} • ${rateLimit.usage_percent}% used`;
+  } else {
+    elements.rateLimitStatus.textContent = statusText;
+  }
+  elements.rateLimitReset.textContent = `Reset: ${resetText}`;
+}
+
+async function fetchRateLimit(refresh = false) {
+  const url = new URL('/api/github-rate-limit', window.location.origin);
+  if (refresh) {
+    url.searchParams.set('refresh', 'true');
+  }
+
+  const response = await fetch(url, { cache: 'no-store' });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (payload?.rate_limit) {
+    state.rateLimit = payload.rate_limit;
+    renderRateLimit();
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error || 'Failed to load GitHub rate limit');
+  }
+
+  return state.rateLimit;
 }
 
 function setSettingsStatus(message, kind = 'info') {
@@ -283,11 +370,18 @@ function updateScanControls(scan) {
   const active = isScanActive(scan);
   const isContinuous = active && scan.mode === 'continuous';
   const canStop = Boolean(scan && scan.can_stop);
+  const rateLimitExhausted = !active && state.rateLimit?.status === 'exhausted';
 
-  elements.scanButton.disabled = active;
+  elements.scanButton.disabled = active || rateLimitExhausted;
   elements.repoInput.disabled = active;
-  elements.startLiveScanButton.disabled = active;
+  elements.startLiveScanButton.disabled = active || rateLimitExhausted;
   elements.stopLiveScanButton.disabled = !(isContinuous && canStop);
+
+  if (rateLimitExhausted) {
+    elements.scanHint.textContent = 'GitHub rate limit is exhausted. New scans are paused until the reset timer finishes.';
+  } else {
+    elements.scanHint.textContent = 'The scan streams PR pages live below and saves qualified matches to disk immediately.';
+  }
 }
 
 function setScanMeta(scan) {
@@ -552,6 +646,11 @@ function connectToScanStream(scanId) {
 }
 
 async function startRepoScan(repo) {
+  await fetchRateLimit(true);
+  if (state.rateLimit?.status === 'exhausted') {
+    throw new Error('GitHub rate limit is exhausted. Wait for the reset timer before starting a new scan.');
+  }
+
   const response = await fetch('/api/scan-repo', {
     method: 'POST',
     headers: {
@@ -574,6 +673,11 @@ async function startRepoScan(repo) {
 }
 
 async function startLiveScan() {
+  await fetchRateLimit(true);
+  if (state.rateLimit?.status === 'exhausted') {
+    throw new Error('GitHub rate limit is exhausted. Wait for the reset timer before starting live scan.');
+  }
+
   const response = await fetch('/api/scan-live/start', {
     method: 'POST',
   });
@@ -609,6 +713,7 @@ async function stopLiveScan() {
 async function initializeDashboard() {
   try {
     await fetchMatches();
+    await fetchRateLimit(true);
     const scan = await fetchScanStatus();
     setScanMeta(scan);
     if (scan && isScanActive(scan)) {
@@ -716,3 +821,12 @@ elements.filterInput.addEventListener('input', renderMatches);
 elements.sortSelect.addEventListener('change', renderMatches);
 
 initializeDashboard();
+
+window.setInterval(async () => {
+  try {
+    await fetchRateLimit();
+    updateScanControls(state.currentScan);
+  } catch {
+    renderRateLimit();
+  }
+}, RATE_LIMIT_POLL_INTERVAL_MS);

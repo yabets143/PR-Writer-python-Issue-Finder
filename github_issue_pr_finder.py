@@ -59,6 +59,19 @@ HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
+RATE_LIMIT_REFRESH_TTL_SECONDS = 15
+LOW_RATE_LIMIT_THRESHOLD = 100
+_LAST_RATE_LIMIT_STATE = {
+    "limit": None,
+    "remaining": None,
+    "used": None,
+    "reset_at": None,
+    "resource": "core",
+    "status": "unknown",
+    "source": "uninitialized",
+    "fetched_at": None,
+}
+
 MIN_STARS = env_int("MIN_STARS", 200)
 MIN_FILES_CHANGED = env_int("MIN_FILES_CHANGED", 4)
 TARGET_MATCHES = env_int("TARGET_MATCHES", 100)
@@ -130,6 +143,9 @@ def configure_github_token(token):
     SESSION.headers.pop("Authorization", None)
     if GITHUB_TOKEN:
         SESSION.headers.update(HEADERS)
+
+    _LAST_RATE_LIMIT_STATE["source"] = "token_updated"
+    _LAST_RATE_LIMIT_STATE["fetched_at"] = None
 
 
 def parse_setting_value(name, value):
@@ -265,6 +281,112 @@ def get_rate_limit_sleep_seconds(response):
         return 60
 
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _classify_rate_limit_status(limit, remaining, reset_at):
+    if limit is None or remaining is None:
+        return "unknown"
+
+    if remaining <= 0:
+        return "exhausted"
+
+    if remaining <= LOW_RATE_LIMIT_THRESHOLD:
+        return "low"
+
+    if limit > 0 and remaining / limit <= 0.1:
+        return "warning"
+
+    if reset_at is not None and reset_at <= int(time.time()) and remaining < limit:
+        return "refreshing"
+
+    return "healthy"
+
+
+def update_rate_limit_state_from_response(response, source="response_headers", resource="core"):
+    limit = _safe_int(response.headers.get("X-RateLimit-Limit"))
+    remaining = _safe_int(response.headers.get("X-RateLimit-Remaining"))
+    used = _safe_int(response.headers.get("X-RateLimit-Used"))
+    reset_at = _safe_int(response.headers.get("X-RateLimit-Reset"))
+
+    _LAST_RATE_LIMIT_STATE.update({
+        "limit": limit,
+        "remaining": remaining,
+        "used": used,
+        "reset_at": reset_at,
+        "resource": resource,
+        "status": _classify_rate_limit_status(limit, remaining, reset_at),
+        "source": source,
+        "fetched_at": int(time.time()),
+    })
+
+
+def get_rate_limit_payload():
+    limit = _LAST_RATE_LIMIT_STATE.get("limit")
+    remaining = _LAST_RATE_LIMIT_STATE.get("remaining")
+    reset_at = _LAST_RATE_LIMIT_STATE.get("reset_at")
+    used = _LAST_RATE_LIMIT_STATE.get("used")
+
+    reset_in_seconds = None
+    if reset_at is not None:
+        reset_in_seconds = max(reset_at - int(time.time()), 0)
+
+    usage_percent = None
+    if limit and remaining is not None:
+        usage_percent = round(((limit - remaining) / limit) * 100, 1)
+
+    return {
+        "limit": limit,
+        "remaining": remaining,
+        "used": used,
+        "reset_at": reset_at,
+        "reset_in_seconds": reset_in_seconds,
+        "resource": _LAST_RATE_LIMIT_STATE.get("resource") or "core",
+        "status": _LAST_RATE_LIMIT_STATE.get("status") or "unknown",
+        "source": _LAST_RATE_LIMIT_STATE.get("source") or "unknown",
+        "fetched_at": _LAST_RATE_LIMIT_STATE.get("fetched_at"),
+        "usage_percent": usage_percent,
+        "low_threshold": LOW_RATE_LIMIT_THRESHOLD,
+        "has_token": bool(GITHUB_TOKEN),
+    }
+
+
+def fetch_rate_limit_status(force_refresh=False):
+    fetched_at = _LAST_RATE_LIMIT_STATE.get("fetched_at")
+    if not force_refresh and fetched_at is not None:
+        if int(time.time()) - int(fetched_at) < RATE_LIMIT_REFRESH_TTL_SECONDS:
+            return get_rate_limit_payload()
+
+    url = "https://api.github.com/rate_limit"
+    response = SESSION.get(url, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    data = response.json()
+    resources = data.get("resources") or {}
+    core = resources.get("core") or {}
+
+    limit = _safe_int(core.get("limit"))
+    remaining = _safe_int(core.get("remaining"))
+    used = _safe_int(core.get("used"))
+    reset_at = _safe_int(core.get("reset"))
+
+    _LAST_RATE_LIMIT_STATE.update({
+        "limit": limit,
+        "remaining": remaining,
+        "used": used,
+        "reset_at": reset_at,
+        "resource": "core",
+        "status": _classify_rate_limit_status(limit, remaining, reset_at),
+        "source": "rate_limit_endpoint",
+        "fetched_at": int(time.time()),
+    })
+
+    return get_rate_limit_payload()
+
+
 def build_retry_sleep_seconds(attempt_number):
     return max(RETRY_BACKOFF_SECONDS * attempt_number, 1)
 
@@ -296,6 +418,7 @@ def github_get(url, params=None, extra_headers=None):
     for attempt in range(1, MAX_REQUEST_RETRIES + 1):
         try:
             response = SESSION.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
+            update_rate_limit_state_from_response(response)
 
             if response.status_code in {403, 429} and response.headers.get("X-RateLimit-Remaining") == "0":
                 sleep_seconds = get_rate_limit_sleep_seconds(response)

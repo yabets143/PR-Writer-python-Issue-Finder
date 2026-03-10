@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=20260310-3">
+  <link rel="stylesheet" href="/static/styles.css?v=20260310-4">
 </head>
 <body>
   <div class="page-shell">
@@ -34,6 +34,12 @@
         <article>
           <span>Scan Status</span>
           <strong id="scanStatus">Idle</strong>
+        </article>
+        <article id="rateLimitCard" class="rate-limit-card" data-status="unknown">
+          <span>GitHub Rate Limit</span>
+          <strong id="rateLimitRemaining">-- / --</strong>
+          <p id="rateLimitStatus" class="rate-limit-status">Checking quota...</p>
+          <small id="rateLimitReset" class="rate-limit-reset">Reset: --</small>
         </article>
       </div>
     </header>
@@ -193,6 +199,6 @@
     </article>
   </template>
 
-  <script src="/static/app.js?v=20260310-3"></script>
+  <script src="/static/app.js?v=20260310-4"></script>
 </body>
 </html>

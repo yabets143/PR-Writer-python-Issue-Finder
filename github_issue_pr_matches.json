@@ -11728,5 +11728,39 @@
     "merge_commit_sha": "4227ede02d4f8c6fdf27179a68a700109da0bdad",
     "checkout_sha": "d26c44c2f9d23c83edc019c89d9fbefcd20ce360",
     "checkout_sha_source": "merge_commit_first_parent"
+  },
+  {
+    "repo": "nvbn/thefuck",
+    "issue_number": 301,
+    "issue_title": "UnicodeEncodeError on non-english systems",
+    "issue_url": "https://github.com/nvbn/thefuck/issues/301",
+    "pr_number": 474,
+    "pr_url": "https://github.com/nvbn/thefuck/pull/474",
+    "files_changed": 6,
+    "issue_comments": 14,
+    "issue_closed_at": "2016-03-10T10:25:50Z",
+    "pr_merged_at": "2016-03-10T10:25:50Z",
+    "base_ref": "master",
+    "base_sha": "d92765d5df6607cb2f2fb67cee7b63f64ac7aa6b",
+    "merge_commit_sha": "6be014cf85c48db791d7ef32c48b24b95f009fc7",
+    "checkout_sha": "d92765d5df6607cb2f2fb67cee7b63f64ac7aa6b",
+    "checkout_sha_source": "pr_base_sha"
+  },
+  {
+    "repo": "nvbn/thefuck",
+    "issue_number": 298,
+    "issue_title": "Add ability to select fixed command from variants",
+    "issue_url": "https://github.com/nvbn/thefuck/issues/298",
+    "pr_number": 324,
+    "pr_url": "https://github.com/nvbn/thefuck/pull/324",
+    "files_changed": 34,
+    "issue_comments": 1,
+    "issue_closed_at": "2015-07-31T12:39:57Z",
+    "pr_merged_at": "2015-07-31T12:39:57Z",
+    "base_ref": "master",
+    "base_sha": "36a0a669b03c012aa063f19f05f434d2659c092d",
+    "merge_commit_sha": "632512a123251d1c7da47632a94ed23e80d10685",
+    "checkout_sha": "36a0a669b03c012aa063f19f05f434d2659c092d",
+    "checkout_sha_source": "pr_base_sha"
   }
 ]
