@@ -48,7 +48,7 @@ The quickest path is documented in [SETUP.md](SETUP.md).
 ### 1. Open the project folder
 
 ```powershell
-Set-Location 'C:\Users\hp\Desktop\ReveloAutomation'
+Set-Location 'C:PATHn'
 ```
 
 ### 2. Create a virtual environment
@@ -71,7 +71,7 @@ pip install -r requirements.txt
 
 ### 5. Add your GitHub token
 
-Create a `.env` file in `c:\Users\hp\Desktop\ReveloAutomation`:
+Create a `.env` file in `c:PATHn`:
 
 ```env
 GITHUB_TOKEN=your_github_token_here
@@ -81,7 +81,7 @@ The app can run without a token, but GitHub rate limits will be much stricter an
 
 ### 6. Start the web app
 
-Use either command below from `c:\Users\hp\Desktop\ReveloAutomation`:
+Use either command below from `c:PATHn`:
 
 ```powershell
 uvicorn webapp:app --reload
@@ -112,7 +112,7 @@ Press `Ctrl+C` in the terminal running `uvicorn`.
 
 ### Troubleshooting
 
-- If `uvicorn app.main:app --reload` fails, make sure you are inside `c:\Users\hp\Desktop\ReveloAutomation`
+- If `uvicorn app.main:app --reload` fails, make sure you are inside `c:PATHn`
 - If the UI shows stale behavior, stop the server and start it again
 - If scans fail quickly, verify that `GITHUB_TOKEN` is present in `.env`
 - If PowerShell blocks activation, run:
