@@ -43,21 +43,85 @@ Use `checkout_sha` when you want to inspect the repository state before the fix 
 
 ## Setup
 
+The quickest path is documented in [SETUP.md](SETUP.md).
 
+### 1. Open the project folder
 
 ```powershell
-pip install requests
+Set-Location 'C:\Users\hp\Desktop\ReveloAutomation'
 ```
 
-4. Add your GitHub token either as an environment variable or inside `.env`
+### 2. Create a virtual environment
 
-Example `.env`:
+```powershell
+python -m venv .venv
+```
+
+### 3. Activate the virtual environment
+
+```powershell
+.\.venv\Scripts\activate
+```
+
+### 4. Install dependencies
+
+```powershell
+pip install -r requirements.txt
+```
+
+### 5. Add your GitHub token
+
+Create a `.env` file in `c:\Users\hp\Desktop\ReveloAutomation`:
 
 ```env
 GITHUB_TOKEN=your_github_token_here
 ```
 
-The script will still run without a token, but GitHub rate limits will be much stricter.
+The app can run without a token, but GitHub rate limits will be much stricter and long scans may stop early.
+
+### 6. Start the web app
+
+Use either command below from `c:\Users\hp\Desktop\ReveloAutomation`:
+
+```powershell
+uvicorn webapp:app --reload
+```
+
+or
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+### 7. Open the app in your browser
+
+```text
+http://127.0.0.1:8000
+```
+
+### 8. Use the app
+
+- Use `Scan Repo` to scan a specific GitHub repository
+- Use `Start Live Scan` to run nonstop discovery across popular Python repos
+- Use `Stop Live Scan` to stop the nonstop scan cleanly
+- Browse saved issue/PR matches in the dashboard
+
+### 9. Stop the app
+
+Press `Ctrl+C` in the terminal running `uvicorn`.
+
+### Troubleshooting
+
+- If `uvicorn app.main:app --reload` fails, make sure you are inside `c:\Users\hp\Desktop\ReveloAutomation`
+- If the UI shows stale behavior, stop the server and start it again
+- If scans fail quickly, verify that `GITHUB_TOKEN` is present in `.env`
+- If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+For a full first-time setup flow, see [SETUP.md](SETUP.md).
 
 ## Usage
 

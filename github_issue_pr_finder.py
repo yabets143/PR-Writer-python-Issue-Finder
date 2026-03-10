@@ -89,6 +89,22 @@ TRIVIAL_KEYWORDS = [
     "comment",
 ]
 
+UI_SETTINGS_SCHEMA = {
+    "GITHUB_TOKEN": {"type": "string", "default": "", "sensitive": True},
+    "TARGET_MATCHES": {"type": "int", "default": 100},
+    "MIN_STARS": {"type": "int", "default": 200},
+    "MIN_FILES_CHANGED": {"type": "int", "default": 4},
+    "MAX_REPO_PAGES": {"type": "int", "default": 10},
+    "MAX_PULL_PAGES_PER_REPO": {"type": "int", "default": 5},
+    "REPOS_PER_PAGE": {"type": "int", "default": 100},
+    "PULLS_PER_PAGE": {"type": "int", "default": 100},
+    "REQUEST_TIMEOUT": {"type": "int", "default": 30},
+    "RUN_UNTIL_STOP": {"type": "bool", "default": False},
+    "FULL_SWEEP_PAUSE_SECONDS": {"type": "int", "default": 900},
+}
+
+BOOL_TRUE_VALUES = {"1", "true", "yes", "on"}
+
 LANGUAGE_MIN_TEXT_LENGTH = 24
 LANGUAGE_WORD_PATTERN = re.compile(r"[A-Za-z]{2,}")
 CODE_FENCE_PATTERN = re.compile(r"```.*?```", re.DOTALL)
@@ -103,6 +119,139 @@ class RecoverableGitHubError(requests.RequestException):
 
 class ScanStopped(Exception):
     """Raised when a caller requests that a scan stop gracefully."""
+
+
+def configure_github_token(token):
+    global GITHUB_TOKEN, HEADERS
+
+    GITHUB_TOKEN = token or ""
+    os.environ["GITHUB_TOKEN"] = GITHUB_TOKEN
+    HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
+    SESSION.headers.pop("Authorization", None)
+    if GITHUB_TOKEN:
+        SESSION.headers.update(HEADERS)
+
+
+def parse_setting_value(name, value):
+    schema = UI_SETTINGS_SCHEMA[name]
+    setting_type = schema["type"]
+
+    if setting_type == "int":
+        return int(value)
+
+    if setting_type == "bool":
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in BOOL_TRUE_VALUES
+
+    return "" if value is None else str(value)
+
+
+def serialize_setting_value(name, value):
+    schema = UI_SETTINGS_SCHEMA[name]
+    if schema["type"] == "bool":
+        return "1" if value else "0"
+    return str(value)
+
+
+def get_settings_payload():
+    return {
+        "GITHUB_TOKEN": GITHUB_TOKEN,
+        "TARGET_MATCHES": TARGET_MATCHES,
+        "MIN_STARS": MIN_STARS,
+        "MIN_FILES_CHANGED": MIN_FILES_CHANGED,
+        "MAX_REPO_PAGES": MAX_REPO_PAGES,
+        "MAX_PULL_PAGES_PER_REPO": MAX_PULL_PAGES_PER_REPO,
+        "REPOS_PER_PAGE": REPOS_PER_PAGE,
+        "PULLS_PER_PAGE": PULLS_PER_PAGE,
+        "REQUEST_TIMEOUT": REQUEST_TIMEOUT,
+        "RUN_UNTIL_STOP": RUN_UNTIL_STOP,
+        "FULL_SWEEP_PAUSE_SECONDS": FULL_SWEEP_PAUSE_SECONDS,
+    }
+
+
+def apply_settings(settings):
+    global TARGET_MATCHES
+    global MIN_STARS
+    global MIN_FILES_CHANGED
+    global MAX_REPO_PAGES
+    global MAX_PULL_PAGES_PER_REPO
+    global REPOS_PER_PAGE
+    global PULLS_PER_PAGE
+    global REQUEST_TIMEOUT
+    global RUN_UNTIL_STOP
+    global FULL_SWEEP_PAUSE_SECONDS
+
+    for name, raw_value in settings.items():
+        if name not in UI_SETTINGS_SCHEMA:
+            continue
+
+        parsed_value = parse_setting_value(name, raw_value)
+        serialized_value = serialize_setting_value(name, parsed_value)
+        os.environ[name] = serialized_value
+
+        if name == "GITHUB_TOKEN":
+            configure_github_token(parsed_value)
+        elif name == "TARGET_MATCHES":
+            TARGET_MATCHES = parsed_value
+        elif name == "MIN_STARS":
+            MIN_STARS = parsed_value
+        elif name == "MIN_FILES_CHANGED":
+            MIN_FILES_CHANGED = parsed_value
+        elif name == "MAX_REPO_PAGES":
+            MAX_REPO_PAGES = parsed_value
+        elif name == "MAX_PULL_PAGES_PER_REPO":
+            MAX_PULL_PAGES_PER_REPO = parsed_value
+        elif name == "REPOS_PER_PAGE":
+            REPOS_PER_PAGE = parsed_value
+        elif name == "PULLS_PER_PAGE":
+            PULLS_PER_PAGE = parsed_value
+        elif name == "REQUEST_TIMEOUT":
+            REQUEST_TIMEOUT = parsed_value
+        elif name == "RUN_UNTIL_STOP":
+            RUN_UNTIL_STOP = parsed_value
+        elif name == "FULL_SWEEP_PAUSE_SECONDS":
+            FULL_SWEEP_PAUSE_SECONDS = parsed_value
+
+    return get_settings_payload()
+
+
+def update_env_file(settings):
+    if not settings:
+        return
+
+    lines = []
+    if os.path.exists(DOTENV_FILE):
+        with open(DOTENV_FILE, "r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+
+    remaining = {key: serialize_setting_value(key, parse_setting_value(key, value)) for key, value in settings.items()}
+    updated_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            updated_lines.append(line)
+            continue
+
+        key, _ = line.split("=", 1)
+        env_key = key.strip()
+        if env_key in remaining:
+            updated_lines.append(f"{env_key}={remaining.pop(env_key)}\n")
+        else:
+            updated_lines.append(line)
+
+    for key, value in remaining.items():
+        updated_lines.append(f"{key}={value}\n")
+
+    with open(DOTENV_FILE, "w", encoding="utf-8") as handle:
+        handle.writelines(updated_lines)
+
+
+def save_settings(settings):
+    filtered_settings = {key: value for key, value in settings.items() if key in UI_SETTINGS_SCHEMA}
+    update_env_file(filtered_settings)
+    return apply_settings(filtered_settings)
 
 
 def get_rate_limit_sleep_seconds(response):
