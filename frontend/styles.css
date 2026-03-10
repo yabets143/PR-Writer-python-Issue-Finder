@@ -45,6 +45,10 @@ a {
   padding: 32px;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 .background-wash {
   position: fixed;
   inset: 0;
@@ -157,6 +161,13 @@ a {
   gap: 18px;
   align-items: start;
   margin-bottom: 22px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .matches-heading {
@@ -282,6 +293,119 @@ button:disabled {
 .active-scan-meta strong {
   display: block;
   margin-top: 6px;
+}
+
+.settings-heading {
+  align-items: end;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(24, 36, 46, 0.08);
+}
+
+
+.settings-label {
+  font-size: 0.94rem;
+  font-weight: 500;
+}
+
+.settings-key {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 0.74rem;
+  color: var(--ink-soft);
+}
+
+.settings-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(24, 36, 46, 0.28);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+
+.settings-drawer {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: min(980px, calc(100vw - 32px));
+  overflow: auto;
+}
+
+.settings-field input[type="text"],
+.settings-field input[type="password"],
+.settings-field input[type="number"] {
+  width: 100%;
+  padding: 13px 15px;
+  border: 1px solid rgba(24, 36, 46, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
+}
+
+.settings-field input[type="text"]:focus,
+.settings-field input[type="password"]:focus,
+.settings-field input[type="number"]:focus {
+  outline: 2px solid rgba(0, 106, 106, 0.25);
+  border-color: rgba(0, 106, 106, 0.55);
+}
+
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(24, 36, 46, 0.12);
+}
+
+.settings-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--signal);
+}
+
+.settings-status[data-kind="success"] {
+  color: var(--signal);
+}
+
+.settings-status[data-kind="error"] {
+  color: var(--accent-deep);
 }
 
 .log-output {
@@ -547,9 +671,26 @@ button:disabled {
   }
 
   .panel-heading,
-  .matches-heading {
+  .matches-heading,
+  .settings-heading {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .panel-actions,
+  .settings-actions {
+    justify-content: stretch;
+  }
+
+  .settings-drawer {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
   }
 
   .match-card {

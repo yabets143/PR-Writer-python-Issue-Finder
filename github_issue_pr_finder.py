@@ -612,6 +612,9 @@ def load_scan_state():
         "scanned_repos": [],
         "last_completed_repo": None,
         "current_star_ceiling": None,
+        "current_repo_search_page": 1,
+        "active_repo": None,
+        "active_pull_page": 1,
         "completed_sweeps": 0,
         "updated_at": None,
     }
@@ -627,6 +630,9 @@ def load_scan_state():
         "scanned_repos": scanned_repos,
         "last_completed_repo": data.get("last_completed_repo"),
         "current_star_ceiling": data.get("current_star_ceiling"),
+        "current_repo_search_page": data.get("current_repo_search_page", 1),
+        "active_repo": data.get("active_repo"),
+        "active_pull_page": data.get("active_pull_page", 1),
         "completed_sweeps": data.get("completed_sweeps", 0),
         "updated_at": data.get("updated_at"),
     }
@@ -637,6 +643,9 @@ def save_scan_state(state):
         "scanned_repos": sorted(set(state.get("scanned_repos", []))),
         "last_completed_repo": state.get("last_completed_repo"),
         "current_star_ceiling": state.get("current_star_ceiling"),
+        "current_repo_search_page": state.get("current_repo_search_page", 1),
+        "active_repo": state.get("active_repo"),
+        "active_pull_page": state.get("active_pull_page", 1),
         "completed_sweeps": state.get("completed_sweeps", 0),
         "updated_at": utc_now_iso(),
     }
@@ -644,26 +653,47 @@ def save_scan_state(state):
         json.dump(payload, handle, indent=2)
 
 
+def update_search_progress(state, repo_search_page):
+    state["current_repo_search_page"] = max(int(repo_search_page or 1), 1)
+    save_scan_state(state)
+
+
+def checkpoint_repo_progress(state, repo_name, pull_page):
+    state["active_repo"] = repo_name
+    state["active_pull_page"] = max(int(pull_page or 1), 1)
+    save_scan_state(state)
+
+
+def clear_repo_progress(state):
+    state["active_repo"] = None
+    state["active_pull_page"] = 1
+    save_scan_state(state)
+
+
 def mark_repo_scanned(state, repo_name):
     scanned_repos = set(state.get("scanned_repos", []))
     scanned_repos.add(repo_name)
     state["scanned_repos"] = sorted(scanned_repos)
     state["last_completed_repo"] = repo_name
+    state["active_repo"] = None
+    state["active_pull_page"] = 1
     save_scan_state(state)
 
 
 def advance_repo_bucket(state, next_star_ceiling):
-    state["scanned_repos"] = []
-    state["last_completed_repo"] = None
     state["current_star_ceiling"] = next_star_ceiling
+    state["current_repo_search_page"] = 1
+    state["active_repo"] = None
+    state["active_pull_page"] = 1
     save_scan_state(state)
 
 
 def reset_for_next_sweep(state):
     state["completed_sweeps"] = state.get("completed_sweeps", 0) + 1
-    state["scanned_repos"] = []
-    state["last_completed_repo"] = None
     state["current_star_ceiling"] = None
+    state["current_repo_search_page"] = 1
+    state["active_repo"] = None
+    state["active_pull_page"] = 1
     save_scan_state(state)
 
 
@@ -723,7 +753,17 @@ def print_match_summary(match, prefix="  "):
     print(f"{prefix}Checkout SHA: {match.get('checkout_sha')}")
 
 
-def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_matches=None, stop_callback=None, repo_data=None):
+def scan_repo(
+    repo_name,
+    matches,
+    seen_issue_urls,
+    seen_match_keys,
+    target_matches=None,
+    stop_callback=None,
+    repo_data=None,
+    state=None,
+    start_pull_page=1,
+):
     raise_if_stop_requested(stop_callback)
     print(f"\nChecking repo: {repo_name}")
     repo_failed = False
@@ -741,8 +781,12 @@ def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_match
         print(f"  Skipping {repo_name} because the repository metadata does not look English.")
         return False, False
 
-    for pull_page in range(1, MAX_PULL_PAGES_PER_REPO + 1):
+    pull_page_start = max(int(start_pull_page or 1), 1)
+
+    for pull_page in range(pull_page_start, MAX_PULL_PAGES_PER_REPO + 1):
         raise_if_stop_requested(stop_callback)
+        if state is not None:
+            checkpoint_repo_progress(state, repo_name, pull_page)
         try:
             pulls = get_closed_pulls(repo_name, pull_page)
         except RecoverableGitHubError as exc:
@@ -823,6 +867,9 @@ def scan_repo(repo_name, matches, seen_issue_urls, seen_match_keys, target_match
 
         sleep_with_stop(0.2, stop_callback=stop_callback, step_seconds=0.2)
 
+    if state is not None and not repo_failed:
+        clear_repo_progress(state)
+
     return repo_failed, False
 
 
@@ -877,6 +924,7 @@ def collect_matches(target_matches=None, run_until_stop=False, stop_callback=Non
     matches = load_matches()
     matches = enrich_matches_with_checkout_state(matches)
     state = load_scan_state()
+    save_scan_state(state)
     seen_issue_urls = {match.get("issue_url") for match in matches if match.get("issue_url")}
     seen_match_keys = {build_match_key(match) for match in matches}
 
@@ -893,6 +941,9 @@ def collect_matches(target_matches=None, run_until_stop=False, stop_callback=Non
         raise_if_stop_requested(stop_callback)
         scanned_repos = set(state.get("scanned_repos", []))
         star_ceiling = state.get("current_star_ceiling")
+        repo_page_start = max(int(state.get("current_repo_search_page") or 1), 1)
+        active_repo_name = state.get("active_repo")
+        active_pull_page = max(int(state.get("active_pull_page") or 1), 1)
         lowest_star_seen = None
         saw_any_repos = False
 
@@ -901,8 +952,9 @@ def collect_matches(target_matches=None, run_until_stop=False, stop_callback=Non
         else:
             print(f"\nScanning Python repositories with stars <= {star_ceiling}")
 
-        for repo_page in range(1, MAX_REPO_PAGES + 1):
+        for repo_page in range(repo_page_start, MAX_REPO_PAGES + 1):
             raise_if_stop_requested(stop_callback)
+            update_search_progress(state, repo_page)
             try:
                 repos = search_python_repos(repo_page, star_ceiling=star_ceiling)
             except RecoverableGitHubError as exc:
@@ -927,6 +979,8 @@ def collect_matches(target_matches=None, run_until_stop=False, stop_callback=Non
                     print(f"\nSkipping repo already scanned: {repo_name}")
                     continue
 
+                start_pull_page = active_pull_page if active_repo_name and repo_name == active_repo_name else 1
+
                 repo_failed, reached_target = scan_repo(
                     repo_name,
                     matches,
@@ -935,7 +989,12 @@ def collect_matches(target_matches=None, run_until_stop=False, stop_callback=Non
                     target_matches=target_matches,
                     stop_callback=stop_callback,
                     repo_data=repo,
+                    state=state,
+                    start_pull_page=start_pull_page,
                 )
+
+                active_repo_name = None
+                active_pull_page = 1
 
                 if reached_target:
                     return matches
@@ -947,6 +1006,9 @@ def collect_matches(target_matches=None, run_until_stop=False, stop_callback=Non
                     scanned_repos.add(repo_name)
 
                 sleep_with_stop(0.5, stop_callback=stop_callback, step_seconds=0.5)
+
+        state["current_repo_search_page"] = 1
+        save_scan_state(state)
 
         if not run_until_stop:
             return matches

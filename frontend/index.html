@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=20260310-3">
 </head>
 <body>
   <div class="page-shell">
@@ -45,7 +45,10 @@
             <p class="eyebrow">Targeted Scan</p>
             <h2>Probe A Repo</h2>
           </div>
-          <button id="refreshMatchesButton" class="ghost-button" type="button">Refresh Matches</button>
+          <div class="panel-actions">
+            <button id="openSettingsButton" class="ghost-button" type="button">Settings</button>
+            <button id="refreshMatchesButton" class="ghost-button" type="button">Refresh Matches</button>
+          </div>
         </div>
 
         <form id="scanForm" class="scan-form">
@@ -125,6 +128,28 @@
         </div>
       </section>
     </main>
+
+    <div id="settingsLayer" class="settings-layer hidden" aria-hidden="true">
+      <button id="settingsBackdrop" class="settings-backdrop" type="button" aria-label="Close settings"></button>
+      <section id="settingsDrawer" class="settings-drawer card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="panel-heading settings-heading">
+          <div>
+            <p class="eyebrow">Scanner Settings</p>
+            <h2 id="settingsTitle">Runtime Configuration</h2>
+          </div>
+          <div class="settings-actions">
+            <button id="reloadSettingsButton" class="ghost-button" type="button">Reload Settings</button>
+            <button id="closeSettingsButton" class="ghost-button" type="button">Close</button>
+            <button id="saveSettingsButton" class="primary-button" type="submit" form="settingsForm">Save Settings</button>
+          </div>
+        </div>
+
+        <form id="settingsForm" class="settings-form">
+          <div id="settingsGrid" class="settings-grid"></div>
+          <p id="settingsStatus" class="subtle-note settings-status">Settings load from the backend and save into the local .env file.</p>
+        </form>
+      </section>
+    </div>
   </div>
 
   <template id="matchCardTemplate">
@@ -168,6 +193,6 @@
     </article>
   </template>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260310-3"></script>
 </body>
 </html>

@@ -77,6 +77,8 @@ Create a `.env` file in `c:PATHn`:
 GITHUB_TOKEN=your_github_token_here
 ```
 
+You can create or manage your GitHub token here: [https://github.com/settings/tokens](https://github.com/settings/tokens)
+
 The app can run without a token, but GitHub rate limits will be much stricter and long scans may stop early.
 
 ### 6. Start the web app

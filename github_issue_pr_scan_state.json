@@ -1,0 +1,28 @@
+{
+  "scanned_repos": [
+    "521xueweihan/HelloGitHub",
+    "AUTOMATIC1111/stable-diffusion-webui",
+    "Comfy-Org/ComfyUI",
+    "EbookFoundation/free-programming-books",
+    "Shubhamsaboo/awesome-llm-apps",
+    "Significant-Gravitas/AutoGPT",
+    "TheAlgorithms/Python",
+    "deepseek-ai/DeepSeek-V3",
+    "donnemartin/system-design-primer",
+    "huggingface/transformers",
+    "langchain-ai/langchain",
+    "langflow-ai/langflow",
+    "open-webui/open-webui",
+    "public-apis/public-apis",
+    "vinta/awesome-python",
+    "yt-dlp/yt-dlp",
+    "ytdl-org/youtube-dl"
+  ],
+  "last_completed_repo": "Shubhamsaboo/awesome-llm-apps",
+  "current_star_ceiling": null,
+  "current_repo_search_page": 1,
+  "active_repo": "pytorch/pytorch",
+  "active_pull_page": 3,
+  "completed_sweeps": 0,
+  "updated_at": "2026-03-10T20:46:52+00:00"
+}

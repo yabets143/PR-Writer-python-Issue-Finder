@@ -25,6 +25,10 @@ class RepoScanRequest(BaseModel):
     repo: str
 
 
+class SettingsUpdateRequest(BaseModel):
+    settings: dict[str, Any]
+
+
 class ScanStreamWriter(io.TextIOBase):
     def __init__(self, log_callback):
         self._buffer = ""
@@ -331,6 +335,32 @@ def get_matches(repo: str | None = None):
         reverse=True,
     )
     return JSONResponse({"count": len(matches), "matches": matches})
+
+
+def build_settings_response():
+    return {
+        "settings": finder.get_settings_payload(),
+        "schema": finder.UI_SETTINGS_SCHEMA,
+    }
+
+
+@app.get("/api/settings")
+def get_settings():
+    return JSONResponse(build_settings_response())
+
+
+@app.patch("/api/settings")
+def update_settings(request: SettingsUpdateRequest):
+    try:
+        settings = finder.save_settings(request.settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return JSONResponse({
+        "settings": settings,
+        "schema": finder.UI_SETTINGS_SCHEMA,
+        "saved": True,
+    })
 
 
 @app.get("/api/scan-status")

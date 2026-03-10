@@ -5,7 +5,24 @@ const state = {
   currentScanId: null,
   currentRepo: null,
   eventSource: null,
+  settings: {},
+  settingsSchema: {},
+  settingsLoaded: false,
 };
+
+const SETTINGS_FIELD_ORDER = [
+  'GITHUB_TOKEN',
+  'TARGET_MATCHES',
+  'MIN_STARS',
+  'MIN_FILES_CHANGED',
+  'MAX_REPO_PAGES',
+  'MAX_PULL_PAGES_PER_REPO',
+  'REPOS_PER_PAGE',
+  'PULLS_PER_PAGE',
+  'REQUEST_TIMEOUT',
+  'RUN_UNTIL_STOP',
+  'FULL_SWEEP_PAUSE_SECONDS',
+];
 
 const elements = {
   totalMatches: document.getElementById('totalMatches'),
@@ -16,6 +33,7 @@ const elements = {
   scanId: document.getElementById('scanId'),
   repoInput: document.getElementById('repoInput'),
   scanButton: document.getElementById('scanButton'),
+  openSettingsButton: document.getElementById('openSettingsButton'),
   startLiveScanButton: document.getElementById('startLiveScanButton'),
   stopLiveScanButton: document.getElementById('stopLiveScanButton'),
   refreshMatchesButton: document.getElementById('refreshMatchesButton'),
@@ -27,7 +45,175 @@ const elements = {
   logOutput: document.getElementById('logOutput'),
   scanForm: document.getElementById('scanForm'),
   matchCardTemplate: document.getElementById('matchCardTemplate'),
+  settingsLayer: document.getElementById('settingsLayer'),
+  settingsBackdrop: document.getElementById('settingsBackdrop'),
+  settingsDrawer: document.getElementById('settingsDrawer'),
+  settingsForm: document.getElementById('settingsForm'),
+  settingsGrid: document.getElementById('settingsGrid'),
+  settingsStatus: document.getElementById('settingsStatus'),
+  reloadSettingsButton: document.getElementById('reloadSettingsButton'),
+  closeSettingsButton: document.getElementById('closeSettingsButton'),
+  saveSettingsButton: document.getElementById('saveSettingsButton'),
 };
+
+function isSettingsModalOpen() {
+  return !elements.settingsLayer.classList.contains('hidden');
+}
+
+function openSettingsModal() {
+  elements.settingsLayer.classList.remove('hidden');
+  elements.settingsLayer.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+}
+
+function closeSettingsModal() {
+  elements.settingsLayer.classList.add('hidden');
+  elements.settingsLayer.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+}
+
+async function ensureSettingsLoaded(forceReload = false) {
+  if (state.settingsLoaded && !forceReload) {
+    return;
+  }
+
+  setSettingsBusy(true);
+  setSettingsStatus(forceReload ? 'Reloading settings...' : 'Loading settings...', 'info');
+  try {
+    await fetchSettings();
+    state.settingsLoaded = true;
+  } finally {
+    setSettingsBusy(false);
+  }
+}
+
+function formatSettingLabel(name) {
+  return name
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function setSettingsStatus(message, kind = 'info') {
+  elements.settingsStatus.textContent = message;
+  elements.settingsStatus.dataset.kind = kind;
+}
+
+function setSettingsBusy(isBusy) {
+  elements.saveSettingsButton.disabled = isBusy;
+  elements.reloadSettingsButton.disabled = isBusy;
+}
+
+function createSettingField(name, schema, value) {
+  const field = document.createElement('div');
+  field.className = 'settings-field';
+
+  const label = document.createElement('label');
+  label.className = 'settings-label';
+  label.htmlFor = `setting-${name}`;
+  label.textContent = formatSettingLabel(name);
+
+  const key = document.createElement('span');
+  key.className = 'settings-key';
+  key.textContent = name;
+
+  field.appendChild(label);
+  field.appendChild(key);
+
+  let input;
+  if (schema.type === 'bool') {
+    const toggleWrap = document.createElement('label');
+    toggleWrap.className = 'settings-toggle';
+
+    input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(value);
+
+    const toggleText = document.createElement('span');
+    toggleText.textContent = value ? 'Enabled' : 'Disabled';
+
+    input.addEventListener('change', () => {
+      toggleText.textContent = input.checked ? 'Enabled' : 'Disabled';
+    });
+
+    toggleWrap.appendChild(input);
+    toggleWrap.appendChild(toggleText);
+    field.appendChild(toggleWrap);
+  } else {
+    input = document.createElement('input');
+    input.type = schema.sensitive ? 'password' : schema.type === 'int' ? 'number' : 'text';
+    input.value = value ?? '';
+    input.placeholder = schema.default === '' ? '' : String(schema.default ?? '');
+    input.autocomplete = schema.sensitive ? 'off' : 'on';
+
+    if (schema.type === 'int') {
+      input.inputMode = 'numeric';
+      input.step = '1';
+      input.required = true;
+    }
+
+    field.appendChild(input);
+  }
+
+  input.id = `setting-${name}`;
+  input.name = name;
+  input.dataset.type = schema.type;
+
+  return field;
+}
+
+function renderSettingsForm() {
+  elements.settingsGrid.innerHTML = '';
+
+  SETTINGS_FIELD_ORDER.forEach((name) => {
+    const schema = state.settingsSchema[name];
+    if (!schema) {
+      return;
+    }
+
+    const value = Object.prototype.hasOwnProperty.call(state.settings, name)
+      ? state.settings[name]
+      : schema.default;
+    elements.settingsGrid.appendChild(createSettingField(name, schema, value));
+  });
+}
+
+function collectSettingsFormData() {
+  const settings = {};
+
+  SETTINGS_FIELD_ORDER.forEach((name) => {
+    const schema = state.settingsSchema[name];
+    const input = elements.settingsForm.elements.namedItem(name);
+    if (!schema || !input) {
+      return;
+    }
+
+    if (schema.type === 'bool') {
+      settings[name] = Boolean(input.checked);
+      return;
+    }
+
+    const rawValue = input.value.trim();
+    if (schema.type === 'int') {
+      if (!rawValue) {
+        throw new Error(`${formatSettingLabel(name)} is required.`);
+      }
+
+      const numericValue = Number.parseInt(rawValue, 10);
+      if (Number.isNaN(numericValue)) {
+        throw new Error(`${formatSettingLabel(name)} must be a whole number.`);
+      }
+
+      settings[name] = numericValue;
+      return;
+    }
+
+    settings[name] = rawValue;
+  });
+
+  return settings;
+}
 
 function formatDate(value) {
   if (!value) {
@@ -269,6 +455,49 @@ async function fetchScanStatus() {
   return payload.scan;
 }
 
+async function fetchSettings() {
+  const response = await fetch('/api/settings', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error('Failed to load settings');
+  }
+
+  const payload = await response.json();
+  state.settings = payload.settings || {};
+  state.settingsSchema = payload.schema || {};
+  renderSettingsForm();
+  setSettingsStatus('Settings loaded from the backend.', 'success');
+}
+
+async function saveSettings() {
+  const settings = collectSettingsFormData();
+  setSettingsBusy(true);
+  setSettingsStatus('Saving settings...', 'info');
+
+  try {
+    const response = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ settings }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractApiError(response, 'Settings could not be saved.'));
+    }
+
+    const payload = await response.json();
+    state.settings = payload.settings || {};
+    state.settingsSchema = payload.schema || state.settingsSchema;
+    renderSettingsForm();
+    state.settingsLoaded = true;
+    setSettingsStatus('Settings saved to the local .env file.', 'success');
+    appendLogLine('Scanner settings updated.', 'status');
+  } finally {
+    setSettingsBusy(false);
+  }
+}
+
 function closeEventSource() {
   if (state.eventSource) {
     state.eventSource.close();
@@ -435,6 +664,52 @@ elements.refreshMatchesButton.addEventListener('click', async () => {
 elements.clearLogButton.addEventListener('click', () => {
   clearLog();
   appendLogLine('Log cleared.', 'status');
+});
+
+elements.openSettingsButton.addEventListener('click', async () => {
+  openSettingsModal();
+
+  try {
+    await ensureSettingsLoaded();
+  } catch (error) {
+    setSettingsStatus(error.message, 'error');
+    appendLogLine(error.message, 'error');
+  }
+});
+
+elements.closeSettingsButton.addEventListener('click', () => {
+  closeSettingsModal();
+});
+
+elements.settingsBackdrop.addEventListener('click', () => {
+  closeSettingsModal();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && isSettingsModalOpen()) {
+    closeSettingsModal();
+  }
+});
+
+elements.settingsForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  try {
+    await saveSettings();
+  } catch (error) {
+    setSettingsStatus(error.message, 'error');
+    appendLogLine(error.message, 'error');
+  }
+});
+
+elements.reloadSettingsButton.addEventListener('click', async () => {
+  try {
+    await ensureSettingsLoaded(true);
+    appendLogLine('Settings reloaded.', 'status');
+  } catch (error) {
+    setSettingsStatus(error.message, 'error');
+    appendLogLine(error.message, 'error');
+  }
 });
 
 elements.filterInput.addEventListener('input', renderMatches);
